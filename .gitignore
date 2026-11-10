@@ -1,0 +1,12 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+*.token
+*.key
+*.pem
+*.log
+node_modules/
+.opencode/
+__pycache__/
+work/

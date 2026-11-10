@@ -1,0 +1,58 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "enabled_providers": ["spark-orchestrator", "spark-coder", "spark-critic"],
+  "provider": {
+    "spark-orchestrator": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Spark orchestrator",
+      "options": {"baseURL": "{env:SPARK_BASE_URL}", "apiKey": "{env:SPARK_API_KEY}"},
+      "models": {
+        "{env:SPARK_MODEL_ORCHESTRATOR}": {
+          "name": "Orchestrator model",
+          "reasoning": true,
+          "limit": {"context": 131072, "output": 16384}
+        }
+      }
+    },
+    "spark-coder": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Spark coder",
+      "options": {"baseURL": "{env:SPARK_BASE_URL}", "apiKey": "{env:SPARK_API_KEY}"},
+      "models": {"{env:SPARK_MODEL_CODER}": {"name": "Coder model"}}
+    },
+    "spark-critic": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Spark critic (vision)",
+      "options": {"baseURL": "{env:SPARK_BASE_URL}", "apiKey": "{env:SPARK_API_KEY}"},
+      "models": {
+        "{env:SPARK_MODEL_CRITIC}": {
+          "name": "Critic model (text and images)",
+          "attachment": true,
+          "modalities": {"input": ["text", "image"], "output": ["text"]}
+        }
+      }
+    }
+  },
+  "model": "spark-orchestrator/{env:SPARK_MODEL_ORCHESTRATOR}",
+  "small_model": "spark-coder/{env:SPARK_MODEL_CODER}",
+  "default_agent": "orchestrator",
+  "instructions": ["{env:SPARK_HARNESS_HOME}/instructions/general.md"],
+  "agent": {
+    "orchestrator": {
+      "mode": "primary",
+      "model": "spark-orchestrator/{env:SPARK_MODEL_ORCHESTRATOR}",
+      "description": "Plans software work, delegates implementation to coder, and requests critic review."
+    },
+    "coder": {
+      "mode": "subagent",
+      "model": "spark-coder/{env:SPARK_MODEL_CODER}",
+      "description": "Implements and tests software, automation, services, websites, desktop apps, and games."
+    },
+    "critic": {
+      "mode": "subagent",
+      "model": "spark-critic/{env:SPARK_MODEL_CRITIC}",
+      "description": "Reviews code, user interfaces, diagrams, screenshots, and test evidence."
+    }
+  },
+  "permission": {"edit": "allow", "bash": "allow", "webfetch": "allow"}
+}

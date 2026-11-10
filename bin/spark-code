@@ -1,0 +1,71 @@
+#!/bin/zsh
+set -euo pipefail
+unsetopt xtrace verbose
+export SPARK_HARNESS_HOME="${0:A:h:h}"
+source "$SPARK_HARNESS_HOME/scripts/common.zsh"
+require_mac
+require_model_ids || exit 1
+
+case "${1:-}" in
+  help|--help|-h)
+    cat <<'HELP'
+Spark Code — general-purpose coding with your private inference models
+
+  spark-code                         Open the coding UI in the current project
+  spark-code run "your request"       Run one request
+  spark-code doctor [--full]          Check models, reasoning, vision; --full adds OpenCode checks
+  spark-code auth                    Enter/rotate the inference token using a hidden prompt
+  spark-code network                 Start interactive Headscale enrollment (needs SPARK_HEADSCALE_URL)
+  spark-code version                 Show harness and OpenCode versions
+
+Other arguments are passed to OpenCode. Work in your project directory first.
+HELP
+    exit 0 ;;
+  auth) store_credential; exit 0 ;;
+  network)
+    local_cli="$(command -v tailscale 2>/dev/null || true)"
+    [[ -n "$local_cli" ]] || local_cli=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+    if [[ ! -x "$local_cli" ]]; then
+      print 'Install and open the Tailscale macOS app, allow its VPN extension, then run spark-code network again.'
+      print 'Download: https://tailscale.com/download/mac'
+      exit 1
+    fi
+    [[ -n "$SPARK_HEADSCALE_URL" ]] || { fail "SPARK_HEADSCALE_URL is not set. Export it or add it to $SPARK_ENDPOINT_FILE."; exit 1; }
+    print -r -- "Starting enrollment with $SPARK_HEADSCALE_URL."
+    print 'Follow the registration page. A Headscale administrator must approve the device unless your login flow handles this.'
+    print 'Automatic approval notifications depend on your Headscale administration setup.'
+    exec "$local_cli" login "--login-server=$SPARK_HEADSCALE_URL" ;;
+  version)
+    print -r -- "Spark Code $(<"$SPARK_HARNESS_HOME/VERSION")"
+    find_opencode && "$OPENCODE_BIN" --version
+    exit 0 ;;
+  doctor)
+    [[ $# -le 2 && ( $# -eq 1 || "$2" == --full ) ]] || { fail 'Usage: spark-code doctor [--full]'; exit 1; }
+    require_gateway || exit 1
+    load_credential
+    print -r -- "Checking $SPARK_BASE_URL"
+    verify_models
+    api_request chat/completions '{"model":"'"$SPARK_MODEL_CODER"'","messages":[{"role":"user","content":"Reply with exactly OK."}],"max_tokens":64,"stream":false}'
+    print -rn -- "$API_BODY" | json_check chat
+    api_request chat/completions '{"model":"'"$SPARK_MODEL_ORCHESTRATOR"'","messages":[{"role":"user","content":"What is 17 times 19? Answer briefly."}],"max_tokens":16384,"stream":true}'
+    print -rn -- "$API_BODY" | json_check reasoning ${SPARK_EXPECT_REASONING:+require}
+    image_data=$(/usr/bin/base64 -i "$SPARK_HARNESS_HOME/assets/vision-test.png" | tr -d '\n')
+    image_request='{"model":"'"$SPARK_MODEL_CRITIC"'","messages":[{"role":"user","content":[{"type":"text","text":"What color is the left half, and what color is the right half? Reply with the two color names in that order, separated by a space."},{"type":"image_url","image_url":{"url":"data:image/png;base64,'"$image_data"'"}}]}],"max_tokens":64,"stream":false}'
+    api_request chat/completions "$image_request"
+    print -rn -- "$API_BODY" | json_check vision
+    if [[ "${2:-}" == --full ]]; then
+      prepare_opencode
+      # Smoke tests must not modify the current project, even though normal use allows tools.
+      export OPENCODE_CONFIG_CONTENT='{"snapshot":false,"permission":{"*":"deny"}}'
+      for model_id in "spark-orchestrator/$SPARK_MODEL_ORCHESTRATOR" "spark-coder/$SPARK_MODEL_CODER" "spark-critic/$SPARK_MODEL_CRITIC"; do
+        print -r -- "Checking OpenCode: $model_id"
+        "$OPENCODE_BIN" run --pure --log-level ERROR --format json --thinking -m "$model_id" 'reply OK' | json_check opencode
+      done
+    fi
+    print 'All requested checks passed.'
+    exit 0 ;;
+esac
+
+load_credential
+prepare_opencode
+exec "$OPENCODE_BIN" --pure "$@"
